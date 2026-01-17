@@ -32,6 +32,7 @@ public class OrderController {
     public Order placeOrder(@RequestHeader("Authorization") String token, @RequestBody OrderRequest request) {
         String username = jwtService.extractUsername(token.substring(7));
         UserInfo user = userRepository.findByName(username).orElseThrow();
+        //TODO:make it get the address from the user
 
         // 1. Initialize Order
         Order order = new Order();

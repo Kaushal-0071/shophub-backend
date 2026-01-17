@@ -1,4 +1,42 @@
 
+================================================================================
+FILE: .\cp.py
+================================================================================
+import os
+
+SOURCE_DIR = "."          # Folder to scan
+OUTPUT_FILE = "merged_output.txt"
+
+EXTENSIONS = {".py", ".java", ".js", ".ts", ".txt"}  # Add/remove as needed
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
+    for root, dirs, files in os.walk(SOURCE_DIR):
+        # Skip hidden folders like .git
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+        for file in files:
+            if file == OUTPUT_FILE:
+                continue
+
+            file_path = os.path.join(root, file)
+            ext = os.path.splitext(file)[1]
+
+            # Only merge selected file types
+            if ext in EXTENSIONS:
+                out.write(f"\n{'='*80}\n")
+                out.write(f"FILE: {file_path}\n")
+                out.write(f"{'='*80}\n")
+
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        out.write(f.read())
+                except Exception as e:
+                    out.write(f"\n[ERROR READING FILE: {e}]\n")
+
+                out.write("\n\n")
+
+print(f"✅ All files merged into {OUTPUT_FILE}")
+
 
 
 ================================================================================
@@ -209,7 +247,140 @@ public class UserInfoUserDetailsService implements UserDetailsService {
 
 
 ================================================================================
-FILE: .\src\main\java\com\shp\shp\controller\ProductController.java
+FILE: .\src\main\java\com\shp\shp\controller\AdminAnalyticsController.java
+================================================================================
+package com.shp.shp.controller;
+
+import com.shp.shp.repository.OrderRepository;
+import com.shp.shp.repository.ProductRepository;
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/admin/analytics")
+@PreAuthorize("hasAuthority('ADMIN')")
+public class AdminAnalyticsController {
+
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private ProductRepository productRepository;
+
+    @GetMapping("/overview")
+    public AnalyticsResponse getAnalytics() {
+        // 1. Sales Over Time (Last 30 days)
+        List<Object[]> salesData = orderRepository.findDailySalesStats();
+        List<DailySales> dailySalesList = new ArrayList<>();
+
+        for (Object[] row : salesData) {
+            dailySalesList.add(DailySales.builder()
+                    .date(row[0].toString())
+                    .orderCount(((Number) row[1]).longValue())
+                    .totalRevenue((BigDecimal) row[2])
+                    .build());
+        }
+
+        // 2. Sales By Category
+        List<Object[]> categoryData = productRepository.findSalesByCategory();
+        Map<String, Long> categoryMap = new HashMap<>();
+
+        for (Object[] row : categoryData) {
+            String category = (String) row[0];
+            Long count = ((Number) row[1]).longValue();
+            categoryMap.put(category, count);
+        }
+
+        return AnalyticsResponse.builder()
+                .dailySales(dailySalesList)
+                .categoryDistribution(categoryMap)
+                .build();
+    }
+}
+
+// --- DTOs for Analytics ---
+
+@Data
+@Builder
+class AnalyticsResponse {
+    private List<DailySales> dailySales;
+    private Map<String, Long> categoryDistribution;
+}
+
+@Data
+@Builder
+class DailySales {
+    private String date;
+    private long orderCount;
+    private BigDecimal totalRevenue;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\AdminController.java
+================================================================================
+package com.shp.shp.controller;
+
+import com.shp.shp.dto.DashboardStats;
+import com.shp.shp.entity.Feature;
+
+import com.shp.shp.repository.FeatureRepository;
+import com.shp.shp.repository.OrderRepository;
+import com.shp.shp.repository.ProductRepository;
+import com.shp.shp.repository.UserInfoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+
+@RestController
+@RequestMapping("/api/admin")
+@PreAuthorize("hasAuthority('ROLE_ADMIN')")
+public class AdminController {
+
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private ProductRepository productRepository;
+    @Autowired private UserInfoRepository userRepository;
+    @Autowired private FeatureRepository featureRepository; // Assuming you create this simple repo
+
+    // ADMIN: Dashboard Stats
+    @GetMapping("/dashboard")
+    public DashboardStats getDashboardStats() {
+        long totalOrders = orderRepository.count();
+        long totalUsers = userRepository.count();
+        long lowStock = productRepository.countByTotalStockLessThan(10);
+        BigDecimal revenue = orderRepository.calculateTotalRevenue();
+
+        return DashboardStats.builder()
+                .totalOrders(totalOrders)
+                .totalUsers(totalUsers)
+                .lowStockProducts(lowStock)
+                .totalRevenue(revenue != null ? revenue : BigDecimal.ZERO)
+                .build();
+    }
+
+    // ADMIN: Update Feature/Banner Image
+    @PostMapping("/feature")
+    public Feature updateFeatureImage(@RequestParam String imageUrl) {
+        // Assuming single feature row for main banner, ID = 1
+        Feature feature = new Feature();
+        feature.setImage(imageUrl);
+        return featureRepository.save(feature);
+    }
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\AuthController.java
 ================================================================================
 package com.shp.shp.controller;
 
@@ -226,7 +397,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api")
-public class ProductController {
+public class AuthController {
 
     @Autowired
     private AuthService service;
@@ -276,6 +447,409 @@ public class ProductController {
 
 
 ================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\CartController.java
+================================================================================
+package com.shp.shp.controller;
+
+import com.shp.shp.dto.CartItemDto;
+import com.shp.shp.dto.CartRequest;
+import com.shp.shp.dto.CartResponse;
+import com.shp.shp.entity.Cart;
+import com.shp.shp.entity.CartItem;
+import com.shp.shp.entity.Product;
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.repository.CartItemRepository;
+import com.shp.shp.repository.CartRepository;
+import com.shp.shp.repository.ProductRepository;
+import com.shp.shp.repository.UserInfoRepository;
+import com.shp.shp.service.JwtService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/cart")
+@PreAuthorize("hasAuthority('ROLE_USER')")
+public class CartController {
+
+    @Autowired private CartRepository cartRepository;
+    @Autowired private CartItemRepository cartItemRepository;
+    @Autowired private ProductRepository productRepository;
+    @Autowired private UserInfoRepository userRepository;
+    @Autowired private JwtService jwtService;
+
+    // Helper to get current user's cart
+    private Cart getOrCreateCart(String token) {
+        String username = jwtService.extractUsername(token.substring(7));
+        UserInfo user = userRepository.findByName(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        return cartRepository.findByUserId(user.getId())
+                .orElseGet(() -> {
+                    Cart newCart = new Cart();
+                    newCart.setUser(user);
+                    return cartRepository.save(newCart);
+                });
+    }
+
+    // 1. View Cart
+    @GetMapping
+    public CartResponse getCart(@RequestHeader("Authorization") String token) {
+        Cart cart = getOrCreateCart(token);
+        return mapToCartResponse(cart);
+    }
+
+    // 2. Add Item to Cart
+    @PostMapping("/add")
+    @Transactional
+    public CartResponse addToCart(@RequestHeader("Authorization") String token, @RequestBody CartRequest request) {
+        Cart cart = getOrCreateCart(token);
+        Product product = productRepository.findById(request.getProductId())
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+
+        // Check if product exists in cart
+        Optional<CartItem> existingItem = cart.getItems().stream()
+                .filter(item -> item.getProduct().getId().equals(product.getId()))
+                .findFirst();
+
+        if (existingItem.isPresent()) {
+            CartItem item = existingItem.get();
+            item.setQuantity(item.getQuantity() + request.getQuantity());
+            cartItemRepository.save(item);
+        } else {
+            CartItem newItem = new CartItem();
+            newItem.setCart(cart);
+            newItem.setProduct(product);
+            newItem.setQuantity(request.getQuantity());
+            cart.getItems().add(newItem);
+            cartItemRepository.save(newItem);
+        }
+
+        // Refresh cart from DB to ensure calculations are correct
+        return mapToCartResponse(cartRepository.findById(cart.getId()).get());
+    }
+
+    // 3. Update Item Quantity
+    @PutMapping("/item/{itemId}")
+    public CartResponse updateQuantity(@RequestHeader("Authorization") String token,
+                                       @PathVariable Long itemId,
+                                       @RequestBody CartRequest request) {
+        Cart cart = getOrCreateCart(token);
+        CartItem item = cartItemRepository.findById(itemId)
+                .orElseThrow(() -> new RuntimeException("Item not found"));
+
+        if (!item.getCart().getId().equals(cart.getId())) {
+            throw new RuntimeException("You cannot modify this cart item");
+        }
+
+        if (request.getQuantity() <= 0) {
+            cartItemRepository.delete(item);
+        } else {
+            item.setQuantity(request.getQuantity());
+            cartItemRepository.save(item);
+        }
+
+        return mapToCartResponse(cartRepository.findById(cart.getId()).get());
+    }
+
+    // 4. Remove Item
+    @DeleteMapping("/item/{itemId}")
+    public CartResponse removeItem(@RequestHeader("Authorization") String token, @PathVariable Long itemId) {
+        Cart cart = getOrCreateCart(token);
+
+        // Ensure the item belongs to the user's cart
+        cart.getItems().removeIf(item -> item.getId().equals(itemId));
+        cartItemRepository.deleteById(itemId);
+
+        return mapToCartResponse(cartRepository.findById(cart.getId()).get());
+    }
+
+    // 5. Clear Cart
+    @DeleteMapping("/clear")
+    @Transactional
+    public String clearCart(@RequestHeader("Authorization") String token) {
+        Cart cart = getOrCreateCart(token);
+        cartItemRepository.deleteByCartId(cart.getId());
+        return "Cart cleared";
+    }
+
+    // Mapper Utility
+    private CartResponse mapToCartResponse(Cart cart) {
+        return CartResponse.builder()
+                .cartId(cart.getId())
+                .totalAmount(cart.getTotalAmount())
+                .items(cart.getItems().stream().map(item -> {
+                    BigDecimal price = item.getProduct().getSalePrice() != null ? item.getProduct().getSalePrice() : item.getProduct().getPrice();
+                    return CartItemDto.builder()
+                            .itemId(item.getId())
+                            .productId(item.getProduct().getId())
+                            .productName(item.getProduct().getTitle())
+                            .image(item.getProduct().getImage())
+                            .price(price)
+                            .quantity(item.getQuantity())
+                            .subTotal(price.multiply(BigDecimal.valueOf(item.getQuantity())))
+                            .build();
+                }).collect(Collectors.toList()))
+                .build();
+    }
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\OrderController.java
+================================================================================
+package com.shp.shp.controller;
+
+
+import com.shp.shp.dto.OrderDtos.OrderRequest;
+import com.shp.shp.entity.*;
+import com.shp.shp.repository.*;
+import com.shp.shp.service.JwtService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private ProductRepository productRepository;
+    @Autowired private UserInfoRepository userRepository;
+    @Autowired private CartRepository cartRepository;
+    @Autowired private CartItemRepository cartItemRepository;
+    @Autowired private JwtService jwtService;
+
+    @PostMapping
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Transactional // Important: Ensures Order is saved AND Cart is cleared in one go
+    public Order placeOrder(@RequestHeader("Authorization") String token, @RequestBody OrderRequest request) {
+        String username = jwtService.extractUsername(token.substring(7));
+        UserInfo user = userRepository.findByName(username).orElseThrow();
+
+        // 1. Initialize Order
+        Order order = new Order();
+        order.setUser(user);
+        order.setOrderDate(LocalDateTime.now());
+        order.setOrderStatus("PENDING");
+        order.setPaymentStatus("PENDING"); // In real app, update this after payment gateway callback
+        order.setPaymentMethod(request.getPaymentMethod());
+        order.setShippingAddress("User Address ID: " + request.getAddressId());
+
+        List<OrderItem> orderItems = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+
+        // 2. Logic Split: From Cart vs. Buy Now
+        if (request.isFromCart()) {
+            // A. Fetch Cart
+            Cart cart = cartRepository.findByUserId(user.getId())
+                    .orElseThrow(() -> new RuntimeException("Cart is empty"));
+
+            if (cart.getItems().isEmpty()) {
+                throw new RuntimeException("Cart is empty");
+            }
+
+            // B. Convert CartItems to OrderItems
+            for (CartItem cartItem : cart.getItems()) {
+                OrderItem orderItem = createOrderItem(order, cartItem.getProduct(), cartItem.getQuantity());
+                orderItems.add(orderItem);
+                total = total.add(orderItem.getPriceAtPurchase().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
+            }
+
+            // C. Clear Cart after processing
+            cartItemRepository.deleteByCartId(cart.getId());
+
+        } else {
+            // D. "Buy Now" (Direct items)
+            if (request.getItems() == null || request.getItems().isEmpty()) {
+                throw new RuntimeException("No items provided");
+            }
+
+            for (var itemReq : request.getItems()) {
+                Product p = productRepository.findById(itemReq.getProductId())
+                        .orElseThrow(() -> new RuntimeException("Product not found"));
+
+                OrderItem orderItem = createOrderItem(order, p, itemReq.getQuantity());
+                orderItems.add(orderItem);
+                total = total.add(orderItem.getPriceAtPurchase().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
+            }
+        }
+
+        order.setTotalAmount(total);
+        order.setOrderItems(orderItems);
+
+        return orderRepository.save(order);
+    }
+
+    // Helper method to create OrderItem
+    private OrderItem createOrderItem(Order order, Product product, Integer quantity) {
+        OrderItem item = new OrderItem();
+        item.setOrder(order);
+        item.setProduct(product);
+        item.setQuantity(quantity);
+        // Lock in the price at time of purchase
+        item.setPriceAtPurchase(product.getSalePrice() != null ? product.getSalePrice() : product.getPrice());
+        return item;
+    }
+
+    @GetMapping("/my-orders")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    public List<Order> getMyOrders(@RequestHeader("Authorization") String token) {
+        String username = jwtService.extractUsername(token.substring(7));
+        UserInfo user = userRepository.findByName(username).orElseThrow();
+        return orderRepository.findByUserId(user.getId());
+    }
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\ReviewController.java
+================================================================================
+package com.shp.shp.controller;
+
+import com.shp.shp.dto.ReviewRequest;
+import com.shp.shp.entity.Product;
+import com.shp.shp.entity.ProductReview;
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.repository.ProductRepository;
+import com.shp.shp.repository.ReviewRepository;
+import com.shp.shp.repository.UserInfoRepository;
+import com.shp.shp.service.JwtService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/reviews")
+public class ReviewController {
+
+    @Autowired private ReviewRepository reviewRepository;
+    @Autowired private ProductRepository productRepository;
+    @Autowired private UserInfoRepository userRepository;
+    @Autowired private JwtService jwtService;
+
+    // PUBLIC: Get reviews for a product
+    @GetMapping("/product/{productId}")
+    public List<ProductReview> getProductReviews(@PathVariable Long productId) {
+        return reviewRepository.findByProductId(productId);
+    }
+
+    // USER: Write a review
+    @PostMapping
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    public ProductReview addReview(@RequestHeader("Authorization") String token, @RequestBody ReviewRequest request) {
+        String username = jwtService.extractUsername(token.substring(7));
+        UserInfo user = userRepository.findByName(username).orElseThrow();
+        Product product = productRepository.findById(request.getProductId()).orElseThrow();
+
+        ProductReview review = new ProductReview();
+        review.setUser(user);
+        review.setUserName(user.getName());
+        review.setProduct(product);
+        review.setReviewMessage(request.getReviewMessage());
+        review.setReviewValue(request.getReviewValue());
+
+        // Logic to update average rating could go here
+
+        return reviewRepository.save(review);
+    }
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\ShopProductController.java
+================================================================================
+package com.shp.shp.controller;
+
+
+import com.shp.shp.dto.ProductDtos.ProductRequest;
+import com.shp.shp.entity.Product;
+import com.shp.shp.repository.ProductRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/products")
+public class ShopProductController {
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    // PUBLIC: Filter and Search
+    @GetMapping("/search")
+    public List<Product> searchProducts(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) String query) {
+        return productRepository.searchProducts(category, minPrice, maxPrice, query);
+    }
+
+    // PUBLIC: Get Single Product
+    @GetMapping("/{id}")
+    public Product getProduct(@PathVariable Long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+    }
+
+    // ADMIN: Create Product
+    @PostMapping
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public Product createProduct(@RequestBody ProductRequest request) {
+        Product p = new Product();
+        p.setTitle(request.getTitle());
+        p.setDescription(request.getDescription());
+        p.setPrice(request.getPrice());
+        p.setSalePrice(request.getSalePrice());
+        p.setCategory(request.getCategory());
+        p.setBrand(request.getBrand());
+        p.setTotalStock(request.getTotalStock());
+        p.setImage(request.getImage());
+        p.setAverageReview(0.0);
+        return productRepository.save(p);
+    }
+
+    // ADMIN: Update Product
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public Product updateProduct(@PathVariable Long id, @RequestBody ProductRequest request) {
+        Product p = productRepository.findById(id).orElseThrow();
+        p.setTitle(request.getTitle());
+        p.setPrice(request.getPrice());
+        p.setSalePrice(request.getSalePrice());
+        p.setTotalStock(request.getTotalStock());
+        p.setImage(request.getImage());
+        return productRepository.save(p);
+    }
+
+    // ADMIN: Delete Product
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public String deleteProduct(@PathVariable Long id) {
+        productRepository.deleteById(id);
+        return "Product deleted";
+    }
+}
+
+
+================================================================================
 FILE: .\src\main\java\com\shp\shp\dto\AuthRequest.java
 ================================================================================
 package com.shp.shp.dto;
@@ -298,27 +872,96 @@ public class AuthRequest {
 
 
 ================================================================================
-FILE: .\src\main\java\com\shp\shp\dto\Product.java
+FILE: .\src\main\java\com\shp\shp\dto\CartItemDto.java
 ================================================================================
 package com.shp.shp.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+
+import java.math.BigDecimal;
 
 @Data
-@AllArgsConstructor
-@NoArgsConstructor
 @Builder
-public class Product {
-
-    private int productId;
-    private String name;
-    private int qty;
-    private double price;
+public class CartItemDto {
+    private Long itemId;
+    private Long productId;
+    private String productName;
+    private String image;
+    private BigDecimal price;
+    private Integer quantity;
+    private BigDecimal subTotal;
 }
 
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\CartRequest.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.Data;
+
+@Data
+public class CartRequest {
+    private Long productId;
+    private Integer quantity;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\CartResponse.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.Builder;
+import lombok.Data;
+import java.math.BigDecimal;
+import java.util.List;
+
+@Data
+@Builder
+public class CartResponse {
+    private Long cartId;
+    private BigDecimal totalAmount;
+    private List<CartItemDto> items;
+}
+
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\DashboardStats.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.Builder;
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Data
+@Builder
+public class DashboardStats {
+    private long totalOrders;
+    private BigDecimal totalRevenue;
+    private long lowStockProducts;
+    private long totalUsers;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\ReviewRequest.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.Data;
+
+@Data
+public class ReviewRequest {
+    private Long productId;
+    private String reviewMessage;
+    private Integer reviewValue; // 1-5
+}
 
 
 ================================================================================
@@ -340,6 +983,128 @@ public class SigninRequest {
     private String roles;
 }
 
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\OrderDtos\OrderItemRequest.java
+================================================================================
+package com.shp.shp.dto.OrderDtos;
+
+import lombok.Data;
+
+@Data
+public class OrderItemRequest {
+    private Long productId;
+    private Integer quantity;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\OrderDtos\OrderItemResponse.java
+================================================================================
+package com.shp.shp.dto.OrderDtos;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Data
+public class OrderItemResponse {
+    private String productName;
+    private Integer quantity;
+    private BigDecimal price;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\OrderDtos\OrderRequest.java
+================================================================================
+package com.shp.shp.dto.OrderDtos;
+
+import com.shp.shp.dto.OrderDtos.OrderItemRequest;
+import lombok.Data;
+import java.util.List;
+
+@Data
+public class OrderRequest {
+    private Long addressId;
+    private String paymentMethod;
+
+    // New flag: true if checking out the whole cart
+    private boolean fromCart;
+
+    // Optional: Only used if fromCart is false (Buy Now)
+    private List<OrderItemRequest> items;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\OrderDtos\OrderResponse.java
+================================================================================
+package com.shp.shp.dto.OrderDtos;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Data
+public class OrderResponse {
+    private Long id;
+    private String orderStatus;
+    private String paymentStatus;
+    private BigDecimal totalAmount;
+    private LocalDateTime orderDate;
+    private String shippingAddress;
+    private List<OrderItemResponse> items;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\ProductDtos\ProductRequest.java
+================================================================================
+package com.shp.shp.dto.ProductDtos;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Data
+public class ProductRequest {
+    private String title;
+    private String description;
+    private String image;
+    private String category;
+    private String brand;
+    private BigDecimal price;
+    private BigDecimal salePrice;
+    private Integer totalStock;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\ProductDtos\ProductResponse.java
+================================================================================
+package com.shp.shp.dto.ProductDtos;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Data
+public class ProductResponse {
+    private Long id;
+    private String title;
+    private String description;
+    private String image;
+    private String category;
+    private String brand;
+    private BigDecimal price;
+    private BigDecimal salePrice;
+    private Integer totalStock;
+    private Double averageReview;
+}
 
 
 ================================================================================
@@ -367,6 +1132,76 @@ public class Address {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "userinfo_id")
     private UserInfo user;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\Cart.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "carts")
+@Data
+public class Cart {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @OneToOne
+    @JoinColumn(name = "user_id")
+    private UserInfo user;
+
+    @OneToMany(mappedBy = "cart", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<CartItem> items = new ArrayList<>();
+
+    // Helper to calculate total dynamically
+    public BigDecimal getTotalAmount() {
+        return items.stream()
+                .map(item -> {
+                    BigDecimal price = item.getProduct().getSalePrice() != null
+                            ? item.getProduct().getSalePrice()
+                            : item.getProduct().getPrice();
+                    return price.multiply(BigDecimal.valueOf(item.getQuantity()));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\CartItem.java
+================================================================================
+package com.shp.shp.entity;
+
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Entity
+@Table(name = "cart_items")
+@Data
+public class CartItem {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cart_id")
+    private Cart cart;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id")
+    private Product product;
+
+    private Integer quantity;
 }
 
 
@@ -637,6 +1472,123 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
 
 ================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\CartItemRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.CartItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface CartItemRepository extends JpaRepository<CartItem, Long> {
+    void deleteByCartId(Long cartId);
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\CartRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.Cart;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface CartRepository extends JpaRepository<Cart, Long> {
+    Optional<Cart> findByUserId(int userId);
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\FeatureRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.Cart;
+import com.shp.shp.entity.Feature;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface FeatureRepository extends JpaRepository<Feature, Long> {
+
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\OrderRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.Order;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import java.math.BigDecimal;
+import java.util.List;
+
+public interface OrderRepository extends JpaRepository<Order, Long> {
+    List<Order> findByUserId(int userId);
+
+    // Total Revenue
+    @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.paymentStatus = 'PAID'")
+    BigDecimal calculateTotalRevenue();
+
+    // Analytics: Monthly Sales (Simple grouping by date)
+    @Query(value = "SELECT DATE(order_date) as date, COUNT(*) as count, SUM(total_amount) as total " +
+            "FROM orders GROUP BY DATE(order_date) ORDER BY DATE(order_date) DESC LIMIT 30",
+            nativeQuery = true)
+    List<Object[]> findDailySalesStats();
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\ProductRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import java.math.BigDecimal;
+import java.util.List;
+
+public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    // ... existing search method ...
+    @Query("SELECT p FROM Product p WHERE " +
+            "(:category IS NULL OR p.category = :category) AND " +
+            "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+            "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+            "(:search IS NULL OR LOWER(p.title) LIKE LOWER(CONCAT('%', :search, '%')))")
+    List<Product> searchProducts(
+            @Param("category") String category,
+            @Param("minPrice") BigDecimal minPrice,
+            @Param("maxPrice") BigDecimal maxPrice,
+            @Param("search") String search
+    );
+
+    long countByTotalStockLessThan(int stockLimit);
+
+    // Analytics: Sales by Category
+    @Query("SELECT p.category, COUNT(oi) FROM OrderItem oi JOIN oi.product p GROUP BY p.category")
+    List<Object[]> findSalesByCategory();
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\ReviewRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+import com.shp.shp.entity.ProductReview;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+
+public interface ReviewRepository extends JpaRepository<ProductReview, Long> {
+    List<ProductReview> findByProductId(Long productId);
+}
+
+
+================================================================================
 FILE: .\src\main\java\com\shp\shp\repository\UserInfoRepository.java
 ================================================================================
 package com.shp.shp.repository;
@@ -660,19 +1612,12 @@ FILE: .\src\main\java\com\shp\shp\service\AuthService.java
 package com.shp.shp.service;
 
 
-import com.shp.shp.dto.Product;
 import com.shp.shp.dto.SigninRequest;
 import com.shp.shp.entity.UserInfo;
 import com.shp.shp.repository.UserInfoRepository;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Random;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @Service
 public class AuthService {
