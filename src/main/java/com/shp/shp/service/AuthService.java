@@ -1,19 +1,12 @@
 package com.shp.shp.service;
 
 
-import com.shp.shp.dto.Product;
 import com.shp.shp.dto.SigninRequest;
 import com.shp.shp.entity.UserInfo;
 import com.shp.shp.repository.UserInfoRepository;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Random;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @Service
 public class AuthService {

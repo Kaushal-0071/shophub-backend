@@ -1,42 +1,4 @@
 
-================================================================================
-FILE: .\cp.py
-================================================================================
-import os
-
-SOURCE_DIR = "."          # Folder to scan
-OUTPUT_FILE = "merged_output.txt"
-
-EXTENSIONS = {".py", ".java", ".js", ".ts", ".txt"}  # Add/remove as needed
-
-with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
-    for root, dirs, files in os.walk(SOURCE_DIR):
-        # Skip hidden folders like .git
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-
-        for file in files:
-            if file == OUTPUT_FILE:
-                continue
-
-            file_path = os.path.join(root, file)
-            ext = os.path.splitext(file)[1]
-
-            # Only merge selected file types
-            if ext in EXTENSIONS:
-                out.write(f"\n{'='*80}\n")
-                out.write(f"FILE: {file_path}\n")
-                out.write(f"{'='*80}\n")
-
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        out.write(f.read())
-                except Exception as e:
-                    out.write(f"\n[ERROR READING FILE: {e}]\n")
-
-                out.write("\n\n")
-
-print(f"✅ All files merged into {OUTPUT_FILE}")
-
 
 
 ================================================================================
@@ -252,26 +214,22 @@ FILE: .\src\main\java\com\shp\shp\controller\ProductController.java
 package com.shp.shp.controller;
 
 import com.shp.shp.dto.AuthRequest;
-import com.shp.shp.dto.Product;
-import com.shp.shp.entity.UserInfo;
+import com.shp.shp.dto.SigninRequest;
 import com.shp.shp.service.JwtService;
 import com.shp.shp.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
-@RequestMapping("/products")
+@RequestMapping("/api")
 public class ProductController {
 
     @Autowired
-    private ProductService service;
+    private AuthService service;
     @Autowired
     private JwtService jwtService;
 
@@ -284,21 +242,21 @@ public class ProductController {
     }
 
     @PostMapping("/new")
-    public String addNewUser(@RequestBody UserInfo userInfo) {
-        return service.addUser(userInfo);
+    public String addNewUser(@RequestBody SigninRequest signinRequest) {
+        return service.addUser(signinRequest);
     }
 
-    @GetMapping("/all")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public List<Product> getAllTheProducts() {
-        return service.getProducts();
-    }
-
-    @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('ROLE_USER')")
-    public Product getProductById(@PathVariable int id) {
-        return service.getProduct(id);
-    }
+//    @GetMapping("/all")
+//    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+//    public List<Product> getAllTheProducts() {
+//        return service.getProducts();
+//    }
+//
+//    @GetMapping("/{id}")
+//    @PreAuthorize("hasAuthority('ROLE_USER')")
+//    public Product getProductById(@PathVariable int id) {
+//        return service.getProduct(id);
+//    }
 
 
     @PostMapping("/authenticate")
@@ -312,6 +270,7 @@ public class ProductController {
 
 
     }
+
 }
 
 
@@ -333,6 +292,8 @@ public class AuthRequest {
     private String username ;
     private String password;
 }
+
+
 
 
 
@@ -361,30 +322,261 @@ public class Product {
 
 
 ================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\SigninRequest.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class SigninRequest {
+    private String username;
+    private String password;
+    private String email;
+    private String roles;
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\Address.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Entity
+@Table(name = "addresses")
+@Data
+public class Address {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String addressLine;
+    private String city;
+    private String pincode;
+    private String phone;
+    private String notes;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "userinfo_id")
+    private UserInfo user;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\Feature.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+
+@Entity
+
+@Data
+public class Feature {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    // e.g. banner image URL
+    private String image;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\Order.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "orders")
+@Data
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "User_id")
+    private UserInfo user;
+
+    // Snapshot of address at time of order
+    private String shippingAddress;
+    private String shippingCity;
+    private String shippingPincode;
+
+    private String orderStatus; // PENDING, DELIVERED, CANCELLED
+    private String paymentMethod;
+    private String paymentStatus;
+    private BigDecimal totalAmount;
+
+    private LocalDateTime orderDate;
+    private String paymentId;
+
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderItem> orderItems = new ArrayList<>();
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\OrderItem.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = "order_items")
+@Data
+public class OrderItem {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id")
+    private Order order;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id")
+    private Product product;
+
+    private Integer quantity;
+
+    // IMPORTANT: Store price here so historical reports remain accurate
+    // even if Product price changes later.
+    private BigDecimal priceAtPurchase;
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\Product.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = "products")
+@Data
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String title;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    private String image;
+
+    // Indexing category is important for your requested analytics
+    @Column(nullable = false)
+    private String category;
+
+    private String brand;
+    private BigDecimal price;
+    private BigDecimal salePrice;
+    private Integer totalStock;
+    private Double averageReview;
+}
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\ProductReview.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Entity
+@Table(name = "product_reviews")
+@Data
+public class ProductReview {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id", nullable = false)
+    private Product product;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private UserInfo user;
+
+    @Column(nullable = false)
+    private String userName; // Stored redundantly or fetched via User entity
+
+    @Column(columnDefinition = "TEXT")
+    private String reviewMessage;
+
+    @Column(nullable = false)
+    private Integer reviewValue; // e.g., 1 to 5
+}
+
+
+================================================================================
 FILE: .\src\main\java\com\shp\shp\entity\UserInfo.java
 ================================================================================
 package com.shp.shp.entity;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Entity
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
+
 public class UserInfo {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
+
+    @Column(unique = true, nullable = false)
     private String name;
+
+    @Column(unique = true, nullable = false)
     private String email;
+    @Column( nullable = false)
     private String password;
+
+    @Column( nullable = false)
     private String roles;
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+    private List<Address> addresses;
 }
 
 
@@ -458,6 +650,50 @@ import java.util.Optional;
 public interface UserInfoRepository extends JpaRepository<UserInfo, Integer> {
     Optional<UserInfo> findByName(String username);
 
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\service\AuthService.java
+================================================================================
+package com.shp.shp.service;
+
+
+import com.shp.shp.dto.Product;
+import com.shp.shp.dto.SigninRequest;
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.repository.UserInfoRepository;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+@Service
+public class AuthService {
+
+    @Autowired
+    private UserInfoRepository repository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+
+    public String addUser(SigninRequest signinRequest) {
+        UserInfo user = new UserInfo();
+        user.setEmail(signinRequest.getEmail());
+        user.setName(signinRequest.getUsername());
+        user.setPassword(passwordEncoder.encode(signinRequest.getPassword()));
+        user.setRoles(signinRequest.getRoles());
+
+        repository.save(user);
+        return "user added to system ";
+    }
 }
 
 
@@ -538,69 +774,6 @@ public class JwtService {
     private Key getSignKey() {
         byte[] keyBytes= Decoders.BASE64.decode(SECRET);
         return Keys.hmacShaKeyFor(keyBytes);
-    }
-}
-
-
-
-================================================================================
-FILE: .\src\main\java\com\shp\shp\service\ProductService.java
-================================================================================
-package com.shp.shp.service;
-
-
-import com.shp.shp.dto.Product;
-import com.shp.shp.entity.UserInfo;
-import com.shp.shp.repository.UserInfoRepository;
-import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Random;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
-@Service
-public class ProductService {
-
-    List<Product> productList = null;
-
-    @Autowired
-    private UserInfoRepository repository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @PostConstruct
-    public void loadProductsFromDB() {
-        productList = IntStream.rangeClosed(1, 100)
-                .mapToObj(i -> Product.builder()
-                        .productId(i)
-                        .name("product " + i)
-                        .qty(new Random().nextInt(10))
-                        .price(new Random().nextInt(5000)).build()
-                ).collect(Collectors.toList());
-    }
-
-
-    public List<Product> getProducts() {
-        return productList;
-    }
-
-    public Product getProduct(int id) {
-        return productList.stream()
-                .filter(product -> product.getProductId() == id)
-                .findAny()
-                .orElseThrow(() -> new RuntimeException("product " + id + " not found"));
-    }
-
-
-    public String addUser(UserInfo userInfo) {
-        userInfo.setPassword(passwordEncoder.encode(userInfo.getPassword()));
-        repository.save(userInfo);
-        return "user added to system ";
     }
 }
 
