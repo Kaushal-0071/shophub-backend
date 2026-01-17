@@ -1,7 +1,10 @@
 package com.shp.shp.controller;
 
 
+import com.shp.shp.dto.OrderDtos.OrderItemResponse;
 import com.shp.shp.dto.OrderDtos.OrderRequest;
+import com.shp.shp.dto.OrderDtos.OrderResponse;
+import com.shp.shp.dto.OrderStatusDTO;
 import com.shp.shp.entity.*;
 import com.shp.shp.repository.*;
 import com.shp.shp.service.JwtService;
@@ -14,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -29,7 +33,7 @@ public class OrderController {
     @PostMapping
     @PreAuthorize("hasAuthority('ROLE_USER')")
     @Transactional // Important: Ensures Order is saved AND Cart is cleared in one go
-    public Order placeOrder(@RequestHeader("Authorization") String token, @RequestBody OrderRequest request) {
+    public OrderResponse placeOrder(@RequestHeader("Authorization") String token, @RequestBody OrderRequest request) {
         String username = jwtService.extractUsername(token.substring(7));
         UserInfo user = userRepository.findByName(username).orElseThrow();
         //TODO:make it get the address from the user
@@ -84,10 +88,35 @@ public class OrderController {
 
         order.setTotalAmount(total);
         order.setOrderItems(orderItems);
+        Order savedOrder = orderRepository.save(order);
+        return mapToOrderResponse(savedOrder);
+    }
+    private OrderResponse mapToOrderResponse(Order order) {
+        OrderResponse response = new OrderResponse();
+        response.setId(order.getId());
+        response.setOrderStatus(order.getOrderStatus());
+        response.setPaymentStatus(order.getPaymentStatus());
+        response.setTotalAmount(order.getTotalAmount());
+        response.setOrderDate(order.getOrderDate());
+        response.setShippingAddress(order.getShippingAddress());
 
-        return orderRepository.save(order);
+        // Map list of OrderItems
+        List<OrderItemResponse> itemResponses = order.getOrderItems().stream()
+                .map(this::mapToItemResponse)
+                .collect(Collectors.toList());
+
+        response.setItems(itemResponses);
+        return response;
     }
 
+    // Helper: Convert OrderItem Entity -> OrderItemResponse DTO
+    private OrderItemResponse mapToItemResponse(OrderItem item) {
+        OrderItemResponse response = new OrderItemResponse();
+        response.setProductName(item.getProduct().getTitle());
+        response.setQuantity(item.getQuantity());
+        response.setPrice(item.getPriceAtPurchase());
+        return response;
+    }
     // Helper method to create OrderItem
     private OrderItem createOrderItem(Order order, Product product, Integer quantity) {
         OrderItem item = new OrderItem();
@@ -98,12 +127,38 @@ public class OrderController {
         item.setPriceAtPurchase(product.getSalePrice() != null ? product.getSalePrice() : product.getPrice());
         return item;
     }
+    // ADMIN: Update Order and Payment Status
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public OrderResponse updateOrderStatus(
+            @PathVariable Long id,
+            @RequestBody OrderStatusDTO statusRequest
+    ) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
+
+        // Only update if the value is provided (not null)
+        if (statusRequest.getOrderStatus() != null && !statusRequest.getOrderStatus().isEmpty()) {
+            order.setOrderStatus(statusRequest.getOrderStatus());
+        }
+
+        if (statusRequest.getPaymentStatus() != null && !statusRequest.getPaymentStatus().isEmpty()) {
+            order.setPaymentStatus(statusRequest.getPaymentStatus());
+        }
+        Order savedOrder = orderRepository.save(order);
+        return mapToOrderResponse(savedOrder);
+    }
 
     @GetMapping("/my-orders")
     @PreAuthorize("hasAuthority('ROLE_USER')")
-    public List<Order> getMyOrders(@RequestHeader("Authorization") String token) {
+    public List<OrderResponse> getMyOrders(@RequestHeader("Authorization") String token) {
         String username = jwtService.extractUsername(token.substring(7));
         UserInfo user = userRepository.findByName(username).orElseThrow();
-        return orderRepository.findByUserId(user.getId());
+        List<Order> orders = orderRepository.findByUserId(user.getId());
+
+        // CHANGE 2: Map the list of entities to a list of DTOs
+        return orders.stream()
+                .map(this::mapToOrderResponse)
+                .collect(Collectors.toList());
     }
 }
