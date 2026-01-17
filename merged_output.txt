@@ -1,0 +1,626 @@
+
+================================================================================
+FILE: .\cp.py
+================================================================================
+import os
+
+SOURCE_DIR = "."          # Folder to scan
+OUTPUT_FILE = "merged_output.txt"
+
+EXTENSIONS = {".py", ".java", ".js", ".ts", ".txt"}  # Add/remove as needed
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
+    for root, dirs, files in os.walk(SOURCE_DIR):
+        # Skip hidden folders like .git
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+        for file in files:
+            if file == OUTPUT_FILE:
+                continue
+
+            file_path = os.path.join(root, file)
+            ext = os.path.splitext(file)[1]
+
+            # Only merge selected file types
+            if ext in EXTENSIONS:
+                out.write(f"\n{'='*80}\n")
+                out.write(f"FILE: {file_path}\n")
+                out.write(f"{'='*80}\n")
+
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        out.write(f.read())
+                except Exception as e:
+                    out.write(f"\n[ERROR READING FILE: {e}]\n")
+
+                out.write("\n\n")
+
+print(f"✅ All files merged into {OUTPUT_FILE}")
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\ShpApplication.java
+================================================================================
+package com.shp.shp;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ShpApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ShpApplication.class, args);
+	}
+
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\config\SecurityConfig.java
+================================================================================
+package com.shp.shp.config;
+
+import com.shp.shp.filter.JwtAuthFilter;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+    @Autowired
+    private JwtAuthFilter authFilter;
+
+    @Bean
+    //authentication
+    public UserDetailsService userDetailsService() {
+//        UserDetails admin = User.withUsername("Basant")
+//                .password(encoder.encode("Pwd1"))
+//                .roles("ADMIN")
+//                .build();
+//        UserDetails user = User.withUsername("John")
+//                .password(encoder.encode("Pwd2"))
+//                .roles("USER","ADMIN","HR")
+//                .build();
+//        return new InMemoryUserDetailsManager(admin, user);
+        return new UserInfoUserDetailsService();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http.csrf(AbstractHttpConfigurer::disable)
+                .authorizeHttpRequests(auth -> auth
+                                .requestMatchers("/products/new", "/products/authenticate").permitAll()
+                                .requestMatchers("/products/**").authenticated()
+                        // add any other matchers here
+                )
+                .authenticationProvider(authenticationProvider())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationProvider authenticationProvider(){
+        DaoAuthenticationProvider authenticationProvider=new DaoAuthenticationProvider(userDetailsService());
+
+        authenticationProvider.setPasswordEncoder(passwordEncoder());
+        return authenticationProvider;
+    }
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\config\UserInfoUserDetails.java
+================================================================================
+package com.shp.shp.config;
+
+
+import com.shp.shp.entity.UserInfo;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class UserInfoUserDetails implements UserDetails {
+
+
+    private String name;
+    private String password;
+    private List<GrantedAuthority> authorities;
+
+    public UserInfoUserDetails(UserInfo userInfo) {
+        name=userInfo.getName();
+        password=userInfo.getPassword();
+        authorities= Arrays.stream(userInfo.getRoles().split(","))
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return name;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\config\UserInfoUserDetailsService.java
+================================================================================
+package com.shp.shp.config;
+
+
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.repository.UserInfoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Component;
+
+import java.util.Optional;
+
+@Component
+public class UserInfoUserDetailsService implements UserDetailsService {
+
+    @Autowired
+    private UserInfoRepository repository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        Optional<UserInfo> userInfo = repository.findByName(username);
+        return userInfo.map(UserInfoUserDetails::new)
+                .orElseThrow(() -> new UsernameNotFoundException("user not found " + username));
+
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\controller\ProductController.java
+================================================================================
+package com.shp.shp.controller;
+
+import com.shp.shp.dto.AuthRequest;
+import com.shp.shp.dto.Product;
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.service.JwtService;
+import com.shp.shp.service.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/products")
+public class ProductController {
+
+    @Autowired
+    private ProductService service;
+    @Autowired
+    private JwtService jwtService;
+
+    @Autowired
+    private AuthenticationManager authenticationManager;
+
+    @GetMapping("/welcome")
+    public String welcome() {
+        return "Welcome this endpoint is not secure";
+    }
+
+    @PostMapping("/new")
+    public String addNewUser(@RequestBody UserInfo userInfo) {
+        return service.addUser(userInfo);
+    }
+
+    @GetMapping("/all")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public List<Product> getAllTheProducts() {
+        return service.getProducts();
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    public Product getProductById(@PathVariable int id) {
+        return service.getProduct(id);
+    }
+
+
+    @PostMapping("/authenticate")
+    public String authenticateAndGetToken(@RequestBody AuthRequest authRequest) {
+        Authentication authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(authRequest.getUsername(), authRequest.getPassword()));
+        if (authentication.isAuthenticated()) {
+            return jwtService.generateToken(authRequest.getUsername());
+        } else {
+            throw new UsernameNotFoundException("invalid user request !");
+        }
+
+
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\AuthRequest.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class AuthRequest {
+
+    private String username ;
+    private String password;
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\dto\Product.java
+================================================================================
+package com.shp.shp.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class Product {
+
+    private int productId;
+    private String name;
+    private int qty;
+    private double price;
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\entity\UserInfo.java
+================================================================================
+package com.shp.shp.entity;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class UserInfo {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+    private String name;
+    private String email;
+    private String password;
+    private String roles;
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\filter\JwtAuthFilter.java
+================================================================================
+package com.shp.shp.filter;
+
+import com.shp.shp.config.UserInfoUserDetailsService;
+import com.shp.shp.service.JwtService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.aspectj.weaver.patterns.IToken;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    @Autowired
+    private JwtService jwtService;
+
+    @Autowired
+    private UserInfoUserDetailsService userDetailsService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+        String authHeader = request.getHeader("Authorization");
+        String token = null;
+        String username = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+            username = jwtService.extractUsername(token);
+        }
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            if (jwtService.validateToken(token, userDetails)) {
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\repository\UserInfoRepository.java
+================================================================================
+package com.shp.shp.repository;
+
+
+import com.shp.shp.entity.UserInfo;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface UserInfoRepository extends JpaRepository<UserInfo, Integer> {
+    Optional<UserInfo> findByName(String username);
+
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\service\JwtService.java
+================================================================================
+package com.shp.shp.service;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.io.Decoder;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+
+import java.security.Key;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+
+@Component
+public class JwtService {
+
+
+    public static final String SECRET = "5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437";
+
+
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String token) {
+        return Jwts
+                .parserBuilder()
+                .setSigningKey(getSignKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+
+    private Boolean isTokenExpired(String token) {
+        return extractExpiration(token).before(new Date());
+    }
+
+    public Boolean validateToken(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+    }
+
+
+    public String generateToken(String userName){
+        Map<String,Object> claims=new HashMap<>();
+        return createToken(claims,userName);
+    }
+
+    private String createToken(Map<String, Object> claims, String userName) {
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(userName)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis()+1000*60*30))
+                .signWith(getSignKey(), SignatureAlgorithm.HS256).compact();
+    }
+
+    private Key getSignKey() {
+        byte[] keyBytes= Decoders.BASE64.decode(SECRET);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\main\java\com\shp\shp\service\ProductService.java
+================================================================================
+package com.shp.shp.service;
+
+
+import com.shp.shp.dto.Product;
+import com.shp.shp.entity.UserInfo;
+import com.shp.shp.repository.UserInfoRepository;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+@Service
+public class ProductService {
+
+    List<Product> productList = null;
+
+    @Autowired
+    private UserInfoRepository repository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @PostConstruct
+    public void loadProductsFromDB() {
+        productList = IntStream.rangeClosed(1, 100)
+                .mapToObj(i -> Product.builder()
+                        .productId(i)
+                        .name("product " + i)
+                        .qty(new Random().nextInt(10))
+                        .price(new Random().nextInt(5000)).build()
+                ).collect(Collectors.toList());
+    }
+
+
+    public List<Product> getProducts() {
+        return productList;
+    }
+
+    public Product getProduct(int id) {
+        return productList.stream()
+                .filter(product -> product.getProductId() == id)
+                .findAny()
+                .orElseThrow(() -> new RuntimeException("product " + id + " not found"));
+    }
+
+
+    public String addUser(UserInfo userInfo) {
+        userInfo.setPassword(passwordEncoder.encode(userInfo.getPassword()));
+        repository.save(userInfo);
+        return "user added to system ";
+    }
+}
+
+
+
+================================================================================
+FILE: .\src\test\java\com\shp\shp\ShpApplicationTests.java
+================================================================================
+package com.shp.shp;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class ShpApplicationTests {
+
+	@Test
+	void contextLoads() {
+	}
+
+}
+
+
